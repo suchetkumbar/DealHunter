@@ -5,12 +5,15 @@ import Link from "next/link";
 import { BookmarkCheck, Check, Download, Link2, RotateCcw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { recordMySearch } from "@/app/actions/data";
+import { AccountMenu } from "@/components/account-menu";
 import { LeadList } from "@/components/lead-list";
 import { LeadReport } from "@/components/lead-report";
 import { PipelineDrawer } from "@/components/pipeline-drawer";
 import { SearchPanel } from "@/components/search-panel";
 import { SurveyScope } from "@/components/survey-scope";
 import { useLeads } from "@/hooks/use-leads";
+import { useSessionUser } from "@/components/session-provider";
 import { usePipeline } from "@/hooks/use-pipeline";
 import { STATUS_LABEL } from "@/lib/pipeline";
 import { toCsv } from "@/lib/csv";
@@ -71,6 +74,9 @@ function App() {
     };
   }, [params]);
   const autoRan = useRef(false);
+  const user = useSessionUser();
+  const recorded = useRef<string | null>(null);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
 
   const savedIds = useMemo(() => new Set(pipeline.leads.map((l) => l.id)), [pipeline.leads]);
   const savedById = useMemo(() => new Map(pipeline.leads.map((l) => [l.id, l])), [pipeline.leads]);
@@ -96,6 +102,32 @@ function App() {
       void runSearch(initial.city.trim(), initial.niche.trim(), initial.radius);
     }
   }, [initial, runSearch]);
+
+  // Signed-in users get each completed survey in their history.
+  useEffect(() => {
+    if (!user || search.status !== "ready") return;
+    const key = `${search.city}|${search.niche}|${search.radiusM}|${search.center.lat}`;
+    if (recorded.current === key) return;
+    recorded.current = key;
+    recordMySearch({
+      city: search.city,
+      niche: search.niche,
+      radiusM: search.radiusM as 2000 | 5000 | 10000,
+      placeLabel: search.center.label.slice(0, 200),
+      resultCount: search.businesses.length,
+    }).catch(() => {
+      /* history is best effort; the survey itself already succeeded */
+    });
+  }, [user, search]);
+
+  const runImport = async () => {
+    try {
+      const added = await pipeline.importLocal();
+      setImportMsg(`Added ${added} lead${added === 1 ? "" : "s"} to your account.`);
+    } catch {
+      setImportMsg("Import didn't finish. Try again in a moment.");
+    }
+  };
 
   const copyLink = async () => {
     try {
@@ -213,8 +245,37 @@ function App() {
               {pipeline.leads.length}
             </span>
           </button>
+          <AccountMenu />
         </nav>
       </header>
+
+      {(pipeline.pendingImport.length > 0 || importMsg) && (
+        <div role="status" className="mb-2 flex flex-wrap items-center gap-3 rounded-xl border border-signal/40 bg-signal/10 px-4 py-3 text-sm">
+          {importMsg ? (
+            <span>{importMsg}</span>
+          ) : (
+            <>
+              <span>
+                You have {pipeline.pendingImport.length} lead{pipeline.pendingImport.length === 1 ? "" : "s"} saved in this browser.
+                Add {pipeline.pendingImport.length === 1 ? "it" : "them"} to your account?
+              </span>
+              <span className="ml-auto flex gap-2">
+                <button type="button" onClick={runImport} className="rounded-lg bg-signal px-3 py-1.5 font-bold text-prussian-deep">
+                  Add to my account
+                </button>
+                <button type="button" onClick={pipeline.dismissImport} className="rounded-lg px-3 py-1.5 text-haze hover:text-chalk">
+                  Not now
+                </button>
+              </span>
+            </>
+          )}
+        </div>
+      )}
+      {pipeline.error && (
+        <p role="alert" className="mb-2 rounded-xl border border-flare/50 bg-flare/10 px-4 py-3 text-sm text-flare">
+          {pipeline.error}
+        </p>
+      )}
 
       <main className="flex flex-1 flex-col pb-16">
         <section className={cn("grid items-center gap-10 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:gap-14", hasResults ? "pt-2" : "pt-6 lg:pt-10")}>
@@ -377,6 +438,7 @@ function App() {
             onUpdate={pipeline.update}
             onRemove={pipeline.remove}
             onExport={exportPipeline}
+            signedIn={pipeline.signedIn}
           />
         )}
       </AnimatePresence>

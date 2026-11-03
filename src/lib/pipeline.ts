@@ -11,7 +11,7 @@ export const STATUS_LABEL: Record<LeadStatus, string> = {
   lost: "Lost",
 };
 
-const SavedLeadSchema = z.object({
+export const SavedLeadSchema = z.object({
   id: z.string().min(1).max(64),
   name: z.string().min(1).max(200),
   website: z.string().max(2048).nullable(),

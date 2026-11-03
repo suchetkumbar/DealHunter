@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Atkinson_Hyperlegible, Bricolage_Grotesque } from "next/font/google";
 import { connection } from "next/server";
+import { SessionProvider } from "@/components/session-provider";
+import { getUser } from "@/lib/session";
 import "./globals.css";
 
 const display = Bricolage_Grotesque({
@@ -30,9 +32,12 @@ export const viewport: Viewport = {
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   // Render per request so Next.js can stamp the CSP nonce from src/proxy.ts onto its scripts.
   await connection();
+  const user = await getUser();
   return (
     <html lang="en" className={`${display.variable} ${body.variable}`}>
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <SessionProvider user={user}>{children}</SessionProvider>
+      </body>
     </html>
   );
 }

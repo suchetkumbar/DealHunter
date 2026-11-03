@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import Link from "next/link";
 import { ExternalLink, Phone, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { STATUSES, STATUS_LABEL, type LeadStatus, type SavedLead } from "@/lib/pipeline";
@@ -13,9 +14,10 @@ type Props = {
   onUpdate: (id: string, patch: { status?: LeadStatus; notes?: string }) => void;
   onRemove: (id: string) => void;
   onExport: () => void;
+  signedIn: boolean;
 };
 
-export function PipelineDrawer({ leads, onClose, onUpdate, onRemove, onExport }: Props) {
+export function PipelineDrawer({ leads, onClose, onUpdate, onRemove, onExport, signedIn }: Props) {
   const [filter, setFilter] = useState<LeadStatus | "all">("all");
   const closeRef = useRef<HTMLButtonElement>(null);
   const counts = Object.fromEntries(STATUSES.map((s) => [s, leads.filter((l) => l.status === s).length])) as Record<LeadStatus, number>;
@@ -65,7 +67,22 @@ export function PipelineDrawer({ leads, onClose, onUpdate, onRemove, onExport }:
             <X size={20} />
           </button>
         </header>
-        <p className="mt-1 text-sm text-haze">Saved in this browser only. Export to keep a copy.</p>
+        {signedIn ? (
+          <p className="mt-1 text-sm text-haze">
+            Saved to your account.{" "}
+            <Link href="/leads" className="font-bold text-chalk underline-offset-4 hover:underline">
+              Open full history
+            </Link>
+          </p>
+        ) : (
+          <p className="mt-1 text-sm text-haze">
+            Saved in this browser only.{" "}
+            <Link href="/auth/sign-up" className="font-bold text-chalk underline-offset-4 hover:underline">
+              Create a free account
+            </Link>{" "}
+            to keep them on every device.
+          </p>
+        )}
 
         <div role="radiogroup" aria-label="Filter by status" className="mt-5 flex flex-wrap gap-1.5 text-sm">
           {(["all", ...STATUSES] as const).map((s) => (

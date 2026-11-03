@@ -81,7 +81,7 @@ export function useLeads() {
         fetch("/api/analyze", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ url: business.website }),
+          body: JSON.stringify({ url: business.website, leadId: business.id, name: business.name.slice(0, 200) }),
         });
       let res = await send();
       // Rate limited (e.g. during "Audit all"): wait as told and retry, up to twice.

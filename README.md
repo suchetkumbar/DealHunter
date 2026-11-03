@@ -23,6 +23,7 @@ Everything is free. There are no API keys and no paid services.
 
   Each gap comes with a ready-to-use pitch line.
 - **My leads:** save businesses, track a status (New, Contacted, Won, Lost) and add notes. Leads are stored in your browser, and you can export them to CSV.
+- **Accounts (free, Neon Auth):** sign up with email and password. Each user's saved leads and notes, search history (with one-click re-run) and audit history live in their account at `/leads`. Guests can still use everything, with leads kept in the browser and offered for import on first sign-in.
 - **Shareable searches:** the city, niche and radius are kept in the URL. **Copy link** shares the exact survey.
 
 ## Run it
@@ -92,4 +93,4 @@ vercel deploy --prod    # production
 bash scripts/firewall.sh   # stage the WAF rule in log mode, then: vercel firewall publish --yes
 ```
 
-No environment variables are needed. For heavy use, run your own Nominatim/Overpass instance or a paid OSM provider, because the public endpoints are shared community resources.
+Environment: the Neon integration provides `DATABASE_URL` and `NEON_AUTH_BASE_URL`, and `NEON_AUTH_COOKIE_SECRET` is set in Vercel (32+ random characters). Locally run `vercel env pull .env.local`, then `npm run db:migrate` to create the tables. For heavy use, run your own Nominatim/Overpass instance or a paid OSM provider, because the public endpoints are shared community resources.

@@ -12,9 +12,10 @@ Please open a private security advisory on this repository (**Security → Repor
 | `GET /api/places` calls OpenStreetMap | Quota exhaustion on shared community services | CDN caching, server cache with stale fallback, rate limits, BotID |
 | The web page | XSS, clickjacking | Nonce-based CSP, frame-ancestors none, React escaping, no `dangerouslySetInnerHTML` |
 | Browser storage (My leads) | Tampered or corrupt data | Every entry is validated with zod on load; invalid entries are dropped |
+| Accounts (Neon Auth) | Credential stuffing, open redirects, cross-user data access | Hosted Better Auth (hashed passwords, sessions in signed httpOnly cookies), 10 attempts / 5 min per IP on sign-in and sign-up, generic sign-in errors, same-site-only `redirectTo`, every query scoped to the session user, FK cascade on account deletion, DB-level CHECK constraints |
 | CSV exports | Spreadsheet formula injection | Cells starting with `= + - @` are neutralised |
 
-There are no accounts, secrets, API keys or databases. Nothing a user enters leaves their browser except the search and the URL being audited.
+Secrets (`DATABASE_URL`, `NEON_AUTH_COOKIE_SECRET`) live only in Vercel environment variables and the git-ignored `.env.local`, which `.vercelignore` keeps out of uploads. Server actions get Next.js's built-in Origin check against cross-site requests.
 
 ## Controls in the code
 
