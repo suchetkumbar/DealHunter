@@ -5,9 +5,9 @@ import type { AnalysisReport, ApiError, Business, GeoPoint, PlacesResponse } fro
 
 export type SearchState =
   | { status: "idle" }
-  | { status: "loading"; city: string; niche: string }
-  | { status: "ready"; city: string; niche: string; center: GeoPoint; businesses: Business[] }
-  | { status: "error"; city: string; niche: string; message: string; retryable: boolean };
+  | { status: "loading"; city: string; niche: string; radiusM: number }
+  | { status: "ready"; city: string; niche: string; radiusM: number; center: GeoPoint; businesses: Business[] }
+  | { status: "error"; city: string; niche: string; radiusM: number; message: string; retryable: boolean };
 
 export type LeadAnalysis =
   | { status: "analyzing" }
@@ -32,18 +32,18 @@ export function useLeads() {
   const generation = useRef(0);
   const searchAbort = useRef<AbortController | null>(null);
 
-  const runSearch = useCallback(async (city: string, niche: string) => {
+  const runSearch = useCallback(async (city: string, niche: string, radiusM: number) => {
     searchAbort.current?.abort();
     const controller = new AbortController();
     searchAbort.current = controller;
     const gen = ++generation.current;
 
-    setSearch({ status: "loading", city, niche });
+    setSearch({ status: "loading", city, niche, radiusM });
     setAnalyses({});
     setBulkRunning(false);
 
     try {
-      const qs = new URLSearchParams({ city, niche });
+      const qs = new URLSearchParams({ city, niche, r: String(radiusM) });
       let res = await fetch(`/api/places?${qs}`, { signal: controller.signal }).catch(() => null);
       // Public map services occasionally hiccup; retry once quietly before showing an error.
       if (!res || res.status >= 500) {
@@ -55,12 +55,12 @@ export function useLeads() {
         const message = await readError(res, "Search failed. Try again.");
         if (gen !== generation.current) return;
         // 400/404 mean the input needs changing; retrying the same search won't help.
-        setSearch({ status: "error", city, niche, message, retryable: res.status >= 500 });
+        setSearch({ status: "error", city, niche, radiusM, message, retryable: res.status >= 500 || res.status === 429 });
         return;
       }
       const data = (await res.json()) as PlacesResponse;
       if (gen !== generation.current) return;
-      setSearch({ status: "ready", city, niche, center: data.center, businesses: data.businesses });
+      setSearch({ status: "ready", city, niche, radiusM: data.radiusM, center: data.center, businesses: data.businesses });
     } catch (err) {
       if (controller.signal.aborted || gen !== generation.current) return;
       const message =
@@ -69,7 +69,7 @@ export function useLeads() {
           : err instanceof Error
             ? err.message
             : "Search failed. Try again.";
-      setSearch({ status: "error", city, niche, message, retryable: true });
+      setSearch({ status: "error", city, niche, radiusM, message, retryable: true });
     }
   }, []);
 
@@ -77,11 +77,20 @@ export function useLeads() {
     setAnalyses((prev) => ({ ...prev, [business.id]: { status: "analyzing" } }));
     let next: LeadAnalysis;
     try {
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: business.website }),
-      });
+      const send = () =>
+        fetch("/api/analyze", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ url: business.website }),
+        });
+      let res = await send();
+      // Rate limited (e.g. during "Audit all"): wait as told and retry, up to twice.
+      for (let attempt = 0; res.status === 429 && attempt < 2; attempt++) {
+        const wait = Math.min(15, Number(res.headers.get("retry-after")) || 2);
+        await new Promise((r) => setTimeout(r, wait * 1000));
+        if (gen !== generation.current) return;
+        res = await send();
+      }
       if (!res.ok) {
         next = { status: "error", message: await readError(res, "The audit failed. Try again.") };
       } else {

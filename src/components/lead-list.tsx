@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Globe, Loader2, ScanSearch } from "lucide-react";
+import { AlertTriangle, BookmarkCheck, Globe, Loader2, ScanSearch } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { LeadAnalysis } from "@/hooks/use-leads";
 import type { Business } from "@/lib/types";
@@ -15,6 +15,7 @@ type Props = {
   selectedId: string | null;
   hoveredId: string | null;
   bulkRunning: boolean;
+  savedIds: Set<string>;
   onSelect: (id: string) => void;
   onHover: (id: string | null) => void;
   onAnalyze: (b: Business) => void;
@@ -36,6 +37,7 @@ export function LeadList({
   selectedId,
   hoveredId,
   bulkRunning,
+  savedIds,
   onSelect,
   onHover,
   onAnalyze,
@@ -168,7 +170,10 @@ export function LeadList({
                   )}
                 >
                   <span className="min-w-0">
-                    <span className="block truncate font-bold">{b.name}</span>
+                    <span className="flex items-center gap-1.5 font-bold">
+                      <span className="truncate">{b.name}</span>
+                      {savedIds.has(b.id) && <BookmarkCheck size={14} className="shrink-0 text-signal" aria-label="Saved" />}
+                    </span>
                     <span className={cn("mt-0.5 flex items-center gap-1.5 truncate text-sm", active ? "text-chalk/85" : "text-haze")}>
                       {host ? (
                         <>

@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import { safeFetchHtml, FetchFailedError } from "./safe-fetch";
+import { certificateInfo, safeFetchHtml, safeStatus, FetchFailedError, type CertInfo } from "./safe-fetch";
 import { noWebsiteReport, scoreSignals, unreachableReport } from "./scoring";
 import type { AnalysisReport, Signal } from "./types";
 
@@ -65,7 +65,27 @@ function detect(haystack: string, detectors: Detector[]): string[] {
 }
 
 /** Pure HTML → signals step, separated from the network so it can be unit tested. */
-export function signalsFromHtml(html: string, finalUrl: URL, responseMs: number): { signals: Signal[]; tools: string[] } {
+const SOCIAL: Detector[] = [
+  { name: "Facebook", patterns: ["facebook.com/"] },
+  { name: "Instagram", patterns: ["instagram.com/"] },
+  { name: "LinkedIn", patterns: ["linkedin.com/company", "linkedin.com/in/"] },
+  { name: "X", patterns: ["twitter.com/", "x.com/"] },
+  { name: "TikTok", patterns: ["tiktok.com/@"] },
+  { name: "YouTube", patterns: ["youtube.com/", "youtu.be/"] },
+];
+
+const REVIEWS: Detector[] = [
+  { name: "Google reviews", patterns: ["g.page/", "maps.google.", "google.com/maps", "search.google.com/local/writereview", "goo.gl/maps"] },
+  { name: "Trustpilot", patterns: ["trustpilot.com"] },
+  { name: "Yelp", patterns: ["yelp.com/biz"] },
+  { name: "Birdeye", patterns: ["birdeye.com"] },
+  { name: "Podium reviews", patterns: ["podium.com"] },
+  { name: "Healthgrades", patterns: ["healthgrades.com"] },
+];
+
+export type HtmlFindings = { signals: Signal[]; tools: string[]; internalLinks: string[] };
+
+export function signalsFromHtml(html: string, finalUrl: URL, responseMs: number): HtmlFindings {
   const $ = cheerio.load(html);
 
   // Only consider places third-party tools are actually wired in: script/iframe/link targets and inline scripts.
@@ -90,6 +110,30 @@ export function signalsFromHtml(html: string, finalUrl: URL, responseMs: number)
   const legacyMarkup = $("font, center, marquee, frameset").length > 0 || $("table[width], td[bgcolor]").length > 3;
   const hasForm = $("form").filter((_, el) => $(el).find("input, textarea").length >= 2).length > 0;
   const hasTelOrMail = $('a[href^="tel:"], a[href^="mailto:"]').length > 0;
+
+  const hrefs = $("a[href]").map((_, el) => $(el).attr("href") ?? "").get();
+  const social = detect(hrefs.join("\n").toLowerCase(), SOCIAL);
+  const reviews = detect(resourceText, REVIEWS);
+  const hasContactPage = $("a[href]")
+    .toArray()
+    .some((el) => /contact|get-in-touch|appointment/i.test(`${$(el).attr("href")} ${$(el).text()}`));
+
+  // Same-origin page links, used for the broken-link check.
+  const internalLinks = [
+    ...new Set(
+      hrefs
+        .map((h) => {
+          try {
+            const u = new URL(h, finalUrl);
+            u.hash = "";
+            return u.origin === finalUrl.origin && u.toString() !== finalUrl.toString() ? u.toString() : null;
+          } catch {
+            return null;
+          }
+        })
+        .filter((u): u is string => !!u && !/\.(pdf|jpe?g|png|gif|webp|svg|zip|docx?)$/i.test(u)),
+    ),
+  ];
 
   const bodyText = $("body").text();
   const years = [...bodyText.matchAll(/(?:©|&copy;|copyright)\s*(?:\d{4}\s*[-–]\s*)?(\d{4})/gi)].map((m) => Number(m[1]));
@@ -182,12 +226,12 @@ export function signalsFromHtml(html: string, finalUrl: URL, responseMs: number)
           detail: `Copyright notice still reads ${latestYear}.`,
           pitch: `Their footer still says ${latestYear} — the site hasn't been touched in years.`,
         },
-    hasForm || hasTelOrMail
+    hasForm || hasTelOrMail || hasContactPage
       ? {
           id: "contact",
           label: "Easy to contact",
           passed: true,
-          detail: hasForm ? "Has a contact form." : "Has tap-to-call or email links.",
+          detail: hasForm ? "Has a contact form." : hasTelOrMail ? "Has tap-to-call or email links." : "Links to a contact page.",
         }
       : {
           id: "contact",
@@ -196,9 +240,90 @@ export function signalsFromHtml(html: string, finalUrl: URL, responseMs: number)
           detail: "No contact form, tap-to-call or email link found.",
           pitch: "There's no quick way to get in touch from the homepage.",
         },
+    social.length
+      ? { id: "social", label: "Social profiles", passed: true, detail: `Links to ${social.join(", ")}.` }
+      : {
+          id: "social",
+          label: "Social profiles",
+          passed: false,
+          detail: "No links to social media profiles.",
+          pitch: "They have no visible social presence, so nothing keeps them in front of past customers.",
+        },
+    reviews.length
+      ? { id: "reviews", label: "Reviews", passed: true, detail: `Shows or links to ${reviews.join(", ")}.` }
+      : {
+          id: "reviews",
+          label: "Reviews",
+          passed: false,
+          detail: "No Google, Yelp or review-platform link found.",
+          pitch: "Their happy customers aren't visible. An automated review-request flow would fix that.",
+        },
   ];
 
-  return { signals, tools: [...chat, ...booking, ...analytics, ...platform] };
+  return { signals, tools: [...chat, ...booking, ...analytics, ...platform, ...social, ...reviews], internalLinks };
+}
+
+const DAY_MS = 86_400_000;
+
+/** Certificate signal from a TLS check. Pure, so it can be unit tested. */
+export function certificateSignal(info: CertInfo | null, now = Date.now()): Signal {
+  if (!info) {
+    return { id: "certificate", label: "Valid certificate", passed: false, detail: "The certificate couldn't be checked." };
+  }
+  if (!info.valid) {
+    return {
+      id: "certificate",
+      label: "Valid certificate",
+      passed: false,
+      detail: info.reason ?? "The certificate isn't trusted.",
+      pitch: "Their security certificate has a problem, so some browsers show a warning page.",
+    };
+  }
+  const days = info.expiresAt ? Math.floor((info.expiresAt.getTime() - now) / DAY_MS) : null;
+  if (days !== null && days < 14) {
+    return {
+      id: "certificate",
+      label: "Valid certificate",
+      passed: false,
+      detail: days < 0 ? "The certificate has expired." : `The certificate expires in ${days} day${days === 1 ? "" : "s"}.`,
+      pitch: "Their security certificate is about to lapse, which would put a warning page in front of every visitor.",
+    };
+  }
+  return {
+    id: "certificate",
+    label: "Valid certificate",
+    passed: true,
+    detail: days !== null ? `Trusted certificate, valid for ${days} more days.` : "Trusted certificate.",
+  };
+}
+
+/** Broken-link signal from HEAD statuses (0 = unreachable). Pure, so it can be unit tested. */
+export function linksSignal(statuses: number[]): Signal {
+  if (!statuses.length) {
+    return { id: "links", label: "Working links", passed: true, detail: "No internal links to check." };
+  }
+  // 403/405 usually mean "HEAD not allowed" rather than a broken page.
+  const broken = statuses.filter((s) => s === 0 || (s >= 400 && s !== 403 && s !== 405)).length;
+  return broken === 0
+    ? { id: "links", label: "Working links", passed: true, detail: `All ${statuses.length} checked links work.` }
+    : {
+        id: "links",
+        label: "Working links",
+        passed: false,
+        detail: `${broken} of ${statuses.length} homepage links are broken.`,
+        pitch: `${broken} link${broken === 1 ? "" : "s"} on their homepage lead nowhere, which looks neglected.`,
+      };
+}
+
+async function checkLinks(links: string[]): Promise<number[]> {
+  const queue = links.slice(0, 8);
+  const statuses: number[] = [];
+  await Promise.all(
+    Array.from({ length: Math.min(4, queue.length) }, async () => {
+      while (queue.length) statuses.push(await safeStatus(queue.shift()!, 4000));
+    }),
+  );
+  return statuses;
 }
 
 export async function analyzeWebsite(url: string | null): Promise<AnalysisReport> {
@@ -212,7 +337,19 @@ export async function analyzeWebsite(url: string | null): Promise<AnalysisReport
     throw err; // BlockedUrlError and unexpected errors are handled by the route
   }
 
-  const { signals, tools } = signalsFromHtml(page.html, page.finalUrl, page.elapsedMs);
+  const { signals, tools, internalLinks } = signalsFromHtml(page.html, page.finalUrl, page.elapsedMs);
+  // Network checks run in parallel and never fail the whole audit.
+  const https = page.finalUrl.protocol === "https:";
+  const [cert, statuses] = await Promise.all([
+    https ? certificateInfo(page.finalUrl.toString()).catch(() => null) : Promise.resolve(null),
+    checkLinks(internalLinks),
+  ]);
+  signals.push(
+    https
+      ? certificateSignal(cert)
+      : { id: "certificate", label: "Valid certificate", passed: false, detail: "No certificate, because the site isn't served over HTTPS." },
+  );
+  signals.push(linksSignal(statuses));
   return {
     url: page.finalUrl.toString(),
     reachable: true,

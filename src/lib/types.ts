@@ -17,6 +17,7 @@ export type GeoPoint = {
 
 export type PlacesResponse = {
   center: GeoPoint;
+  radiusM: number;
   businesses: Business[];
 };
 
@@ -31,7 +32,11 @@ export type SignalId =
   | "analytics"
   | "platform"
   | "freshness"
-  | "contact";
+  | "contact"
+  | "social"
+  | "reviews"
+  | "certificate"
+  | "links";
 
 export type Signal = {
   id: SignalId;

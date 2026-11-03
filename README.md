@@ -4,6 +4,27 @@ Find local businesses that still run on paper. Pick a city and a niche and SaleC
 
 Everything is free. There are no API keys and no paid services.
 
+**Features**
+- **Survey:** set a radius of 2, 5 or 10 km. Each business is plotted at its real position on the scope.
+- **Audit:** 15 checks:
+  - website and whether it loads
+  - HTTPS and certificate expiry
+  - speed
+  - mobile support
+  - chat/AI widget
+  - online booking
+  - analytics
+  - platform
+  - freshness
+  - contact options
+  - social profiles
+  - reviews
+  - broken links
+
+  Each gap comes with a ready-to-use pitch line.
+- **My leads:** save businesses, track a status (New, Contacted, Won, Lost) and add notes. Leads are stored in your browser, and you can export them to CSV.
+- **Shareable searches:** the city, niche and radius are kept in the URL. **Copy link** shares the exact survey.
+
 ## Run it
 
 ```bash
@@ -39,6 +60,15 @@ Requires Node.js 20.9 or newer.
   - Every DNS answer and every redirect hop is checked against private, loopback, link-local and metadata ranges.
   - 8 s timeout and 1.5 MB body cap.
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for the threat model and every control. In short:
+- SSRF protection checked at connect time, plus a port allowlist
+- nonce-based CSP and strict security headers
+- same-origin and per-IP rate limits on the API
+- free Vercel BotID and a WAF probe-blocking rule (`scripts/firewall.sh`)
+- Dependabot and CI with an audit gate
+
 ## Project layout
 
 ```
@@ -51,6 +81,15 @@ src/lib/                      osm, analyze, scoring, safe-fetch, csv, types
 src/lib/__tests__/            Vitest unit tests
 ```
 
-## Deploying
+## Deploying (Vercel Hobby, $0)
 
-The API routes use the Node.js runtime and have no native dependencies, so it deploys to Vercel or any Node host as is. For heavy use, run your own Nominatim/Overpass instance or a paid OSM provider, because the public endpoints are shared community resources.
+```bash
+npm i -g vercel
+vercel login            # interactive
+vercel link             # create/link the "salecrawler" project
+vercel deploy           # preview
+vercel deploy --prod    # production
+bash scripts/firewall.sh   # stage the WAF rule in log mode, then: vercel firewall publish --yes
+```
+
+No environment variables are needed. For heavy use, run your own Nominatim/Overpass instance or a paid OSM provider, because the public endpoints are shared community resources.

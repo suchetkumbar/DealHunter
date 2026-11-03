@@ -9,7 +9,9 @@ const OVERPASS_MIRRORS = [
   "https://overpass.private.coffee/api/interpreter",
 ];
 const OVERPASS_TIMEOUT_MS = 15_000;
-const RADIUS_M = 6000;
+export const RADII_M = [2000, 5000, 10000] as const;
+export type RadiusM = (typeof RADII_M)[number];
+export const DEFAULT_RADIUS_M: RadiusM = 5000;
 const MAX_RESULTS = 40;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -236,8 +238,8 @@ function nominatimToBusiness(p: NominatimPlace): Business | null {
   };
 }
 
-async function searchNominatim(center: GeoPoint, terms: string[]): Promise<Business[]> {
-  const dLat = RADIUS_M / 111_320;
+async function searchNominatim(center: GeoPoint, terms: string[], radiusM: number): Promise<Business[]> {
+  const dLat = radiusM / 111_320;
   const dLon = dLat / Math.cos((center.lat * Math.PI) / 180);
   const viewbox = [center.lon - dLon, center.lat + dLat, center.lon + dLon, center.lat - dLat].map((n) => n.toFixed(5)).join(",");
   const out: Business[] = [];
@@ -258,7 +260,7 @@ async function searchNominatim(center: GeoPoint, terms: string[]): Promise<Busin
   return out;
 }
 
-function dedupeAndSort(center: GeoPoint, list: Business[]): Business[] {
+function dedupeAndSort(center: GeoPoint, list: Business[], radiusM: number): Business[] {
   const seen = new Set<string>();
   const out: Business[] = [];
   for (const b of list) {
@@ -268,33 +270,38 @@ function dedupeAndSort(center: GeoPoint, list: Business[]): Business[] {
     seen.add(b.id);
     out.push(b);
   }
-  return out.sort((a, b) => distance(center, a) - distance(center, b)).slice(0, MAX_RESULTS);
+  // The Nominatim viewbox is a square; keep only results inside the circular survey radius.
+  return out
+    .filter((b) => distanceKm(center, b) * 1000 <= radiusM)
+    .sort((a, b) => distance(center, a) - distance(center, b))
+    .slice(0, MAX_RESULTS);
 }
 
 /**
  * Nominatim answers in about a second, so it's the primary source. Overpass is more complete but
  * public instances are often slow or overloaded, so it's only used when Nominatim finds nothing.
  */
-export async function findBusinesses(center: GeoPoint, niche: string): Promise<Business[]> {
+export async function findBusinesses(center: GeoPoint, niche: string, radiusM: RadiusM = DEFAULT_RADIUS_M): Promise<Business[]> {
   const { key, filters } = resolveNiche(niche);
   if (!filters.length) return [];
   const terms = key ? NICHES[key].search : [toTagValue(niche).replace(/_/g, " ")];
 
-  return cached(`osm:${center.lat.toFixed(4)},${center.lon.toFixed(4)}:${filters.join("|")}`, async () => {
+  return cached(`osm:${center.lat.toFixed(4)},${center.lon.toFixed(4)}:${radiusM}:${filters.join("|")}`, async () => {
     let primaryError: unknown = null;
     try {
-      const fast = dedupeAndSort(center, await searchNominatim(center, terms));
+      const fast = dedupeAndSort(center, await searchNominatim(center, terms, radiusM), radiusM);
       if (fast.length) return fast;
     } catch (err) {
       primaryError = err;
     }
     try {
-      const around = `(around:${RADIUS_M},${center.lat},${center.lon})`;
+      const around = `(around:${radiusM},${center.lat},${center.lon})`;
       const body = filters.map((f) => `nwr${f}${around};`).join("");
       const elements = await queryOverpass(`[out:json][timeout:15];(${body});out center tags ${MAX_RESULTS * 2};`);
       return dedupeAndSort(
         center,
         elements.map(toBusiness).filter((b): b is Business => b !== null),
+        radiusM,
       );
     } catch (err) {
       // Nominatim answered but had nothing, and Overpass is unavailable: report "no matches"
@@ -339,4 +346,10 @@ function distance(a: { lat: number; lon: number }, b: { lat: number; lon: number
   const dLat = a.lat - b.lat;
   const dLon = (a.lon - b.lon) * Math.cos((a.lat * Math.PI) / 180);
   return dLat * dLat + dLon * dLon;
+}
+
+export function distanceKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+  const dLat = (a.lat - b.lat) * 111.32;
+  const dLon = (a.lon - b.lon) * Math.cos((a.lat * Math.PI) / 180) * 111.32;
+  return Math.hypot(dLat, dLon);
 }

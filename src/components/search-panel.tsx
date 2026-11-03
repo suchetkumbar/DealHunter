@@ -26,14 +26,24 @@ const ALL_NICHES = [
   { value: "pharmacy", label: "Pharmacies" },
 ];
 
+export const RADII = [
+  { value: 2000, label: "2 km" },
+  { value: 5000, label: "5 km" },
+  { value: 10000, label: "10 km" },
+] as const;
+
 type Props = {
   busy: boolean;
-  onSearch: (city: string, niche: string) => void;
+  initialCity?: string;
+  initialNiche?: string;
+  initialRadius?: number;
+  onSearch: (city: string, niche: string, radiusM: number) => void;
 };
 
-export function SearchPanel({ busy, onSearch }: Props) {
-  const [city, setCity] = useState("");
-  const [niche, setNiche] = useState("");
+export function SearchPanel({ busy, initialCity = "", initialNiche = "", initialRadius = 5000, onSearch }: Props) {
+  const [city, setCity] = useState(initialCity);
+  const [niche, setNiche] = useState(initialNiche);
+  const [radius, setRadius] = useState(initialRadius);
   const [touched, setTouched] = useState(false);
   const ref = useRef<HTMLFormElement>(null);
 
@@ -44,7 +54,7 @@ export function SearchPanel({ busy, onSearch }: Props) {
     e.preventDefault();
     setTouched(true);
     if (city.trim().length < 2 || niche.trim().length < 2) return;
-    onSearch(city.trim(), niche.trim());
+    onSearch(city.trim(), niche.trim(), radius);
   };
 
   const trackPointer = (e: React.PointerEvent<HTMLFormElement>) => {
@@ -126,6 +136,29 @@ export function SearchPanel({ busy, onSearch }: Props) {
           <span id="city-error">{cityError}</span> <span id="niche-error">{nicheError}</span>
         </p>
       )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
+        <span id="radius-label" className="text-sm text-haze">
+          Search radius
+        </span>
+        <div role="radiogroup" aria-labelledby="radius-label" className="flex rounded-full border border-haze/25 p-0.5">
+          {RADII.map((r) => (
+            <button
+              key={r.value}
+              type="button"
+              role="radio"
+              aria-checked={radius === r.value}
+              onClick={() => setRadius(r.value)}
+              className={cn(
+                "rounded-full px-3.5 py-1.5 text-sm transition-colors sm:px-3 sm:py-1",
+                radius === r.value ? "bg-cyanotype text-chalk" : "text-haze hover:text-chalk",
+              )}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="mt-3 flex flex-wrap gap-2 px-1" role="group" aria-label="Popular niches">
         {POPULAR.map((n) => (

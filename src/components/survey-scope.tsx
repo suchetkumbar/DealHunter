@@ -12,6 +12,12 @@ const R = 196;
 const SWEEP_S = 1.9;
 const KM_PER_DEG = 111.32;
 
+/**
+ * Round SVG coordinates to 2 decimals. Math.sin/cos can differ in the last digits between the
+ * server (Node) and the browser, which made React report a hydration mismatch on these attributes.
+ */
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
 type Props = {
   search: SearchState;
   analyses: Record<string, LeadAnalysis>;
@@ -23,18 +29,20 @@ type Props = {
 
 type Plotted = { b: Business; x: number; y: number; bearing: number; km: number };
 
-function project(center: GeoPoint, businesses: Business[]): { points: Plotted[]; maxKm: number } {
+function project(center: GeoPoint, businesses: Business[], radiusKm: number): { points: Plotted[]; maxKm: number } {
   const cos = Math.cos((center.lat * Math.PI) / 180);
   const raw = businesses.map((b) => {
     const dx = (b.lon - center.lon) * cos * KM_PER_DEG;
     const dy = (b.lat - center.lat) * KM_PER_DEG;
     return { b, dx, dy, km: Math.hypot(dx, dy) };
   });
-  const maxKm = Math.max(1, Math.ceil(Math.max(0, ...raw.map((r) => r.km))));
+  // Rings follow the chosen survey radius; stray results just outside it are pulled onto the rim.
+  const maxKm = radiusKm;
   const points = raw.map(({ b, dx, dy, km }) => {
     const scale = (R - 10) / maxKm;
-    const x = C + dx * scale;
-    const y = C - dy * scale;
+    const k = km > maxKm ? maxKm / km : 1;
+    const x = r2(C + dx * k * scale);
+    const y = r2(C - dy * k * scale);
     // Bearing clockwise from north, so it matches the sweep direction.
     const bearing = (Math.atan2(dx, dy) * 180) / Math.PI;
     return { b, x, y, km, bearing: (bearing + 360) % 360 };
@@ -46,10 +54,10 @@ export function SurveyScope({ search, analyses, selectedId, hoveredId, onSelect,
   const reduce = useReducedMotion();
   const ready = search.status === "ready" ? search : null;
   const { points, maxKm } = useMemo(
-    () => (ready ? project(ready.center, ready.businesses) : { points: [], maxKm: 5 }),
+    () => (ready ? project(ready.center, ready.businesses, ready.radiusM / 1000) : { points: [], maxKm: 5 }),
     [ready],
   );
-  const sweepKey = ready ? `${ready.center.lat},${ready.center.lon},${ready.niche}` : "idle";
+  const sweepKey = ready ? `${ready.center.lat},${ready.center.lon},${ready.niche},${ready.radiusM}` : "idle";
   const scanning = search.status === "loading";
 
   return (
@@ -83,7 +91,7 @@ export function SurveyScope({ search, analyses, selectedId, hoveredId, onSelect,
         {/* Range rings + cross hairs */}
         <g stroke="#8fa9bf" strokeOpacity="0.16" fill="none">
           {[1 / 3, 2 / 3].map((f) => (
-            <circle key={f} cx={C} cy={C} r={R * f} strokeDasharray="2 5" />
+            <circle key={f} cx={C} cy={C} r={r2(R * f)} strokeDasharray="2 5" />
           ))}
           <line x1={C - R} y1={C} x2={C + R} y2={C} />
           <line x1={C} y1={C - R} x2={C} y2={C + R} />
@@ -97,10 +105,10 @@ export function SurveyScope({ search, analyses, selectedId, hoveredId, onSelect,
             return (
               <line
                 key={i}
-                x1={C + Math.sin(a) * inner}
-                y1={C - Math.cos(a) * inner}
-                x2={C + Math.sin(a) * R}
-                y2={C - Math.cos(a) * R}
+                x1={r2(C + Math.sin(a) * inner)}
+                y1={r2(C - Math.cos(a) * inner)}
+                x2={r2(C + Math.sin(a) * R)}
+                y2={r2(C - Math.cos(a) * R)}
               />
             );
           })}
@@ -113,7 +121,7 @@ export function SurveyScope({ search, analyses, selectedId, hoveredId, onSelect,
         {/* Range labels sit on the south axis, where they collide with fewer leads. */}
         <g className="fill-haze text-[11px]">
           {[1 / 3, 2 / 3, 1].map((f) => (
-            <text key={f} x={C + 5} y={C + R * f - 5}>
+            <text key={f} x={C + 5} y={r2(C + R * f - 5)}>
               {formatKm(maxKm * f)}
             </text>
           ))}
@@ -137,7 +145,7 @@ export function SurveyScope({ search, analyses, selectedId, hoveredId, onSelect,
                   : { duration: SWEEP_S, ease: "linear", opacity: { duration: SWEEP_S + 0.4, times: [0, 0.85, 1] } }
               }
             >
-              <path d={`M ${C} ${C} L ${C} ${C - R} A ${R} ${R} 0 0 0 ${C - R * Math.sin(Math.PI / 5)} ${C - R * Math.cos(Math.PI / 5)} Z`} fill="url(#sweep-fade)" />
+              <path d={`M ${C} ${C} L ${C} ${C - R} A ${R} ${R} 0 0 0 ${r2(C - R * Math.sin(Math.PI / 5))} ${r2(C - R * Math.cos(Math.PI / 5))} Z`} fill="url(#sweep-fade)" />
               <line x1={C} y1={C} x2={C} y2={C - R} stroke="#f4c542" strokeWidth="1.5" strokeOpacity="0.9" />
             </motion.g>
           )}

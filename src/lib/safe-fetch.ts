@@ -1,5 +1,8 @@
+import dns from "node:dns";
 import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { isIP, type LookupFunction } from "node:net";
+import tls from "node:tls";
+import { Agent, fetch as undiciFetch, type Response as UndiciResponse } from "undici";
 
 export class BlockedUrlError extends Error {
   constructor(message: string) {
@@ -19,6 +22,9 @@ const USER_AGENT = "Mozilla/5.0 (compatible; SaleCrawler/1.0; +site-audit)";
 const MAX_REDIRECTS = 3;
 const TIMEOUT_MS = 8000;
 const MAX_BYTES = 1_500_000;
+/** Empty string = the scheme's default port. Anything else could be used to probe internal services. */
+const ALLOWED_PORTS = new Set(["", "80", "443", "8080", "8443"]);
+const HTML_TYPES = ["text/html", "application/xhtml+xml"];
 
 function ipv4ToInt(ip: string): number {
   return ip.split(".").reduce((acc, part) => (acc << 8) + Number(part), 0) >>> 0;
@@ -75,6 +81,9 @@ export async function assertPublicUrl(raw: string): Promise<URL> {
   if (url.username || url.password) {
     throw new BlockedUrlError("Addresses with embedded credentials can't be checked.");
   }
+  if (!ALLOWED_PORTS.has(url.port)) {
+    throw new BlockedUrlError("Only standard web ports (80, 443, 8080, 8443) can be checked.");
+  }
   const host = url.hostname.replace(/^\[|\]$/g, "");
   if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal")) {
     throw new BlockedUrlError("Private and local addresses can't be checked.");
@@ -95,6 +104,28 @@ export async function assertPublicUrl(raw: string): Promise<URL> {
   return url;
 }
 
+/**
+ * DNS lookup used for the actual TCP connection. Re-validating here (instead of only before the
+ * request) closes the DNS-rebinding window: the address we check is the address we connect to.
+ */
+export const safeLookup: LookupFunction = (hostname, options, callback) => {
+  dns.lookup(hostname, { all: true, verbatim: true, family: options.family }, (err, addresses) => {
+    if (err) return callback(err, "", 0);
+    const list = addresses as dns.LookupAddress[];
+    if (!list.length || list.some((a) => isPrivateAddress(a.address))) {
+      return callback(new BlockedUrlError("Private and local addresses can't be checked."), "", 0);
+    }
+    if (options.all) return (callback as unknown as (e: null, a: dns.LookupAddress[]) => void)(null, list);
+    callback(null, list[0].address, list[0].family);
+  });
+};
+
+const agent = new Agent({
+  connect: { lookup: safeLookup, timeout: 5000 },
+  headersTimeout: TIMEOUT_MS,
+  bodyTimeout: TIMEOUT_MS,
+});
+
 export type SafeFetchResult = {
   finalUrl: URL;
   status: number;
@@ -102,26 +133,30 @@ export type SafeFetchResult = {
   elapsedMs: number;
 };
 
-/** Fetch a public HTML page with redirect re-validation, a timeout and a size cap. */
-export async function safeFetchHtml(raw: string): Promise<SafeFetchResult> {
-  const started = performance.now();
-  let current = await assertPublicUrl(raw);
+type Hop = { finalUrl: URL; res: UndiciResponse };
 
+/** Request a public URL, following at most MAX_REDIRECTS redirects and re-validating each hop. */
+async function safeRequest(raw: string, method: "GET" | "HEAD", timeoutMs = TIMEOUT_MS): Promise<Hop> {
+  let current = await assertPublicUrl(raw);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    let res: Response;
+    let res: UndiciResponse;
     try {
-      res = await fetch(current, {
+      res = await undiciFetch(current, {
+        method,
         redirect: "manual",
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        dispatcher: agent,
+        signal: AbortSignal.timeout(timeoutMs),
         headers: { "user-agent": USER_AGENT, accept: "text/html,application/xhtml+xml" },
       });
     } catch (err) {
+      if (err instanceof BlockedUrlError) throw err;
+      const cause = (err as { cause?: unknown })?.cause;
+      if (cause instanceof BlockedUrlError) throw cause;
       const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
       throw new FetchFailedError(
-        timedOut ? `The site took longer than ${TIMEOUT_MS / 1000} seconds to respond.` : "The site refused the connection.",
+        timedOut ? `The site took longer than ${timeoutMs / 1000} seconds to respond.` : "The site refused the connection.",
       );
     }
-
     if (res.status >= 300 && res.status < 400) {
       const location = res.headers.get("location");
       await res.body?.cancel();
@@ -129,20 +164,75 @@ export async function safeFetchHtml(raw: string): Promise<SafeFetchResult> {
       current = await assertPublicUrl(new URL(location, current).toString());
       continue;
     }
-
-    if (res.status >= 400) {
-      await res.body?.cancel();
-      throw new FetchFailedError(`The site answered with HTTP ${res.status}.`);
-    }
-
-    const html = await readCapped(res);
-    return { finalUrl: current, status: res.status, html, elapsedMs: Math.round(performance.now() - started) };
+    return { finalUrl: current, res };
   }
-
   throw new FetchFailedError("The site redirected too many times.");
 }
 
-async function readCapped(res: Response): Promise<string> {
+/** Fetch a public HTML page with redirect re-validation, a timeout and a size cap. */
+export async function safeFetchHtml(raw: string): Promise<SafeFetchResult> {
+  const started = performance.now();
+  const { finalUrl, res } = await safeRequest(raw, "GET");
+  if (res.status >= 400) {
+    await res.body?.cancel();
+    throw new FetchFailedError(`The site answered with HTTP ${res.status}.`);
+  }
+  const type = (res.headers.get("content-type") ?? "text/html").toLowerCase();
+  if (!HTML_TYPES.some((t) => type.includes(t))) {
+    await res.body?.cancel();
+    throw new FetchFailedError("The address doesn't return a web page.");
+  }
+  const html = await readCapped(res);
+  return { finalUrl, status: res.status, html, elapsedMs: Math.round(performance.now() - started) };
+}
+
+/** HEAD a public URL and return its final status (0 when unreachable). Never throws. */
+export async function safeStatus(raw: string, timeoutMs = 4000): Promise<number> {
+  try {
+    const { res } = await safeRequest(raw, "HEAD", timeoutMs);
+    await res.body?.cancel();
+    return res.status;
+  } catch {
+    return 0;
+  }
+}
+
+export type CertInfo = { valid: boolean; expiresAt: Date | null; reason?: string };
+
+/** Read the TLS certificate of an https URL, connecting only to a validated public address. */
+export async function certificateInfo(raw: string, timeoutMs = 5000): Promise<CertInfo> {
+  const url = await assertPublicUrl(raw);
+  if (url.protocol !== "https:") return { valid: false, expiresAt: null, reason: "Not served over HTTPS." };
+  return new Promise((resolve) => {
+    const socket = tls.connect({
+      host: url.hostname.replace(/^\[|\]$/g, ""),
+      port: Number(url.port || 443),
+      servername: isIP(url.hostname) ? undefined : url.hostname,
+      lookup: safeLookup,
+      rejectUnauthorized: false,
+      timeout: timeoutMs,
+    });
+    const done = (info: CertInfo) => {
+      socket.destroy();
+      resolve(info);
+    };
+    socket.once("secureConnect", () => {
+      const cert = socket.getPeerCertificate();
+      const expiresAt = cert?.valid_to ? new Date(cert.valid_to) : null;
+      done({
+        valid: socket.authorized,
+        expiresAt,
+        reason: socket.authorized ? undefined : String(socket.authorizationError ?? "Certificate isn't trusted."),
+      });
+    });
+    socket.once("timeout", () => done({ valid: false, expiresAt: null, reason: "The TLS handshake timed out." }));
+    socket.once("error", (err) =>
+      done({ valid: false, expiresAt: null, reason: err instanceof BlockedUrlError ? err.message : "The TLS handshake failed." }),
+    );
+  });
+}
+
+async function readCapped(res: UndiciResponse): Promise<string> {
   if (!res.body) return "";
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];

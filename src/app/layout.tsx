@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Atkinson_Hyperlegible, Bricolage_Grotesque } from "next/font/google";
+import { connection } from "next/server";
 import "./globals.css";
 
 const display = Bricolage_Grotesque({
@@ -26,7 +27,9 @@ export const viewport: Viewport = {
   themeColor: "#0F2A44",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // Render per request so Next.js can stamp the CSP nonce from src/proxy.ts onto its scripts.
+  await connection();
   return (
     <html lang="en" className={`${display.variable} ${body.variable}`}>
       <body className="antialiased">{children}</body>

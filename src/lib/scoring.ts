@@ -2,17 +2,21 @@ import type { AnalysisReport, Signal, SignalId, Verdict } from "./types";
 
 /** How much each passed signal contributes to digital maturity. Sums to 100. */
 export const SIGNAL_WEIGHTS: Record<SignalId, number> = {
-  website: 15,
-  reachable: 10,
-  https: 8,
-  speed: 7,
-  mobile: 10,
-  chat: 15,
-  booking: 12,
-  analytics: 8,
-  platform: 7,
-  freshness: 4,
+  website: 13,
+  reachable: 8,
+  https: 5,
+  speed: 6,
+  mobile: 9,
+  chat: 13,
+  booking: 11,
+  analytics: 7,
+  platform: 6,
+  freshness: 3,
   contact: 4,
+  social: 5,
+  reviews: 5,
+  certificate: 3,
+  links: 2,
 };
 
 export function verdictFor(opportunity: number): Verdict {

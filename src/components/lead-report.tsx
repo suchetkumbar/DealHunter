@@ -1,17 +1,44 @@
 "use client";
 
 import { animate, motion, useReducedMotion } from "framer-motion";
-import { Check, Copy, ExternalLink, Loader2, MapPin, Phone, RotateCcw, ScanSearch, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  Bookmark,
+  BookmarkCheck,
+  Check,
+  Copy,
+  ExternalLink,
+  Loader2,
+  MapPin,
+  Phone,
+  RotateCcw,
+  ScanSearch,
+  X,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { LeadAnalysis } from "@/hooks/use-leads";
+import {
+  STATUSES,
+  STATUS_LABEL,
+  type LeadStatus,
+  type SavedLead,
+} from "@/lib/pipeline";
 import type { AnalysisReport, Business, Verdict } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { hostOf } from "./lead-list";
 
 const VERDICT_COPY: Record<Verdict, { title: string; body: string }> = {
-  prime: { title: "Prime lead", body: "Big gaps in their online presence. There's a lot you could sell them." },
-  warm: { title: "Warm lead", body: "Some basics are covered, but there are clear gaps to pitch." },
-  saturated: { title: "Already well equipped", body: "Most tools are in place. Pitch only if you have something specialised." },
+  prime: {
+    title: "Prime lead",
+    body: "Big gaps in their online presence. There's a lot you could sell them.",
+  },
+  warm: {
+    title: "Warm lead",
+    body: "Some basics are covered, but there are clear gaps to pitch.",
+  },
+  saturated: {
+    title: "Already well equipped",
+    body: "Most tools are in place. Pitch only if you have something specialised.",
+  },
 };
 
 type Props = {
@@ -19,18 +46,42 @@ type Props = {
   analysis?: LeadAnalysis;
   onAnalyze: (b: Business) => void;
   onClose?: () => void;
+  saved?: SavedLead;
+  onSave: (b: Business, report: AnalysisReport | null) => void;
+  onUpdate: (
+    id: string,
+    patch: { status?: LeadStatus; notes?: string },
+  ) => void;
+  onRemove: (id: string) => void;
 };
 
-export function LeadReport({ business, analysis, onAnalyze, onClose }: Props) {
+export function LeadReport({
+  business,
+  analysis,
+  onAnalyze,
+  onClose,
+  saved,
+  onSave,
+  onUpdate,
+  onRemove,
+}: Props) {
   const host = hostOf(business.website);
+  const report = analysis?.status === "done" ? analysis.report : null;
   return (
     <article aria-labelledby="report-title" className="flex flex-col gap-6">
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h2 id="report-title" className="font-display text-3xl font-semibold leading-tight tracking-tight text-balance">
+          <h2
+            id="report-title"
+            className="font-display text-3xl font-semibold leading-tight tracking-tight text-balance"
+          >
             {business.name}
           </h2>
-          {business.category && <p className="mt-1 capitalize text-haze">{business.category.replace(/_/g, " ")}</p>}
+          {business.category && (
+            <p className="mt-1 capitalize text-haze">
+              {business.category.replace(/_/g, " ")}
+            </p>
+          )}
         </div>
         {onClose && (
           <button
@@ -50,7 +101,10 @@ export function LeadReport({ business, analysis, onAnalyze, onClose }: Props) {
         </Row>
         <Row icon={<Phone size={15} />} label="Phone">
           {business.phone ? (
-            <a href={`tel:${business.phone.replace(/[^\d+]/g, "")}`} className="hover:text-signal hover:underline">
+            <a
+              href={`tel:${business.phone.replace(/[^\d+]/g, "")}`}
+              className="hover:text-signal hover:underline"
+            >
               {business.phone}
             </a>
           ) : (
@@ -59,7 +113,12 @@ export function LeadReport({ business, analysis, onAnalyze, onClose }: Props) {
         </Row>
         <Row icon={<ExternalLink size={15} />} label="Website">
           {business.website && host ? (
-            <a href={business.website} target="_blank" rel="noopener noreferrer" className="hover:text-signal hover:underline">
+            <a
+              href={business.website}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-signal hover:underline"
+            >
               {host}
             </a>
           ) : (
@@ -67,6 +126,15 @@ export function LeadReport({ business, analysis, onAnalyze, onClose }: Props) {
           )}
         </Row>
       </dl>
+
+      <PipelineControls
+        business={business}
+        report={report}
+        saved={saved}
+        onSave={onSave}
+        onUpdate={onUpdate}
+        onRemove={onRemove}
+      />
 
       {!analysis && (
         <div className="rounded-2xl border border-dashed border-haze/30 p-6">
@@ -86,14 +154,21 @@ export function LeadReport({ business, analysis, onAnalyze, onClose }: Props) {
       )}
 
       {analysis?.status === "analyzing" && (
-        <div className="flex items-center gap-3 rounded-2xl border border-haze/20 p-6 text-haze" role="status">
+        <div
+          className="flex items-center gap-3 rounded-2xl border border-haze/20 p-6 text-haze"
+          role="status"
+        >
           <Loader2 size={20} className="animate-spin" aria-hidden />
-          Checking {host ?? "the listing"} for booking, chat, mobile support and more…
+          Checking {host ?? "the listing"} for booking, chat, mobile support and
+          more…
         </div>
       )}
 
       {analysis?.status === "error" && (
-        <div className="rounded-2xl border border-flare/50 bg-flare/10 p-6" role="alert">
+        <div
+          className="rounded-2xl border border-flare/50 bg-flare/10 p-6"
+          role="alert"
+        >
           <p className="font-bold text-flare">The audit didn&apos;t finish.</p>
           <p className="mt-1 text-sm text-chalk/90">{analysis.message}</p>
           <button
@@ -106,12 +181,22 @@ export function LeadReport({ business, analysis, onAnalyze, onClose }: Props) {
         </div>
       )}
 
-      {analysis?.status === "done" && <ReportBody report={analysis.report} name={business.name} />}
+      {analysis?.status === "done" && (
+        <ReportBody report={analysis.report} name={business.name} />
+      )}
     </article>
   );
 }
 
-function Row({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
+function Row({
+  icon,
+  label,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="grid grid-cols-[1.25rem_5rem_1fr] items-baseline gap-2">
       <dt className="contents">
@@ -125,9 +210,17 @@ function Row({ icon, label, children }: { icon: React.ReactNode; label: string; 
   );
 }
 
-function ReportBody({ report, name }: { report: AnalysisReport; name: string }) {
+function ReportBody({
+  report,
+  name,
+}: {
+  report: AnalysisReport;
+  name: string;
+}) {
   const copy = VERDICT_COPY[report.verdict];
-  const pitches = report.signals.filter((s) => !s.passed && s.pitch).map((s) => s.pitch!);
+  const pitches = report.signals
+    .filter((s) => !s.passed && s.pitch)
+    .map((s) => s.pitch!);
   const passed = report.signals.filter((s) => s.passed).length;
 
   return (
@@ -135,13 +228,19 @@ function ReportBody({ report, name }: { report: AnalysisReport; name: string }) 
       <div className="flex items-center gap-5">
         <Dial value={report.opportunity} verdict={report.verdict} />
         <div>
-          <p className={cn("font-display text-xl font-semibold", report.verdict === "prime" ? "text-signal" : "text-chalk")}>
+          <p
+            className={cn(
+              "font-display text-xl font-semibold",
+              report.verdict === "prime" ? "text-signal" : "text-chalk",
+            )}
+          >
             {copy.title}
           </p>
           <p className="mt-1 max-w-[34ch] text-sm text-haze">{copy.body}</p>
           {report.responseMs !== null && (
             <p className="mt-2 text-xs text-haze">
-              {passed} of {report.signals.length} checks passed, responded in {(report.responseMs / 1000).toFixed(1)}s
+              {passed} of {report.signals.length} checks passed, responded in{" "}
+              {(report.responseMs / 1000).toFixed(1)}s
             </p>
           )}
         </div>
@@ -157,11 +256,17 @@ function ReportBody({ report, name }: { report: AnalysisReport; name: string }) 
               <span
                 className={cn(
                   "mt-0.5 grid size-5 shrink-0 place-items-center rounded-full",
-                  s.passed ? "bg-haze/20 text-chalk" : "bg-signal text-prussian-deep",
+                  s.passed
+                    ? "bg-haze/20 text-chalk"
+                    : "bg-signal text-prussian-deep",
                 )}
                 aria-label={s.passed ? "Has it" : "Missing"}
               >
-                {s.passed ? <Check size={12} strokeWidth={3} /> : <X size={12} strokeWidth={3} />}
+                {s.passed ? (
+                  <Check size={12} strokeWidth={3} />
+                ) : (
+                  <X size={12} strokeWidth={3} />
+                )}
               </span>
               <span className="min-w-0">
                 <span className="block font-bold">{s.label}</span>
@@ -172,12 +277,15 @@ function ReportBody({ report, name }: { report: AnalysisReport; name: string }) 
         </ul>
         {report.verdict !== "saturated" && report.reachable && (
           <p className="mt-3 text-xs text-haze">
-            Widgets that load only after JavaScript runs can be missed. Confirm on the live site before pitching.
+            Widgets that load only after JavaScript runs can be missed. Confirm
+            on the live site before pitching.
           </p>
         )}
       </section>
 
-      {pitches.length > 0 && <PitchBlock name={name} pitches={pitches.slice(0, 3)} />}
+      {pitches.length > 0 && (
+        <PitchBlock name={name} pitches={pitches.slice(0, 3)} />
+      )}
     </div>
   );
 }
@@ -197,7 +305,10 @@ function PitchBlock({ name, pitches }: { name: string; pitches: string[] }) {
   };
 
   return (
-    <section aria-labelledby="pitch-heading" className="rounded-2xl bg-cyanotype/45 p-5">
+    <section
+      aria-labelledby="pitch-heading"
+      className="rounded-2xl bg-cyanotype/45 p-5"
+    >
       <div className="flex items-center justify-between gap-3">
         <h3 id="pitch-heading" className="font-display text-lg font-semibold">
           Pitch angles
@@ -207,13 +318,20 @@ function PitchBlock({ name, pitches }: { name: string; pitches: string[] }) {
           onClick={copy}
           className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm text-haze hover:bg-cyanotype hover:text-chalk"
         >
-          {copied ? <Check size={14} aria-hidden /> : <Copy size={14} aria-hidden />}
+          {copied ? (
+            <Check size={14} aria-hidden />
+          ) : (
+            <Copy size={14} aria-hidden />
+          )}
           <span aria-live="polite">{copied ? "Copied" : "Copy"}</span>
         </button>
       </div>
       <ul className="mt-3 space-y-2.5">
         {pitches.map((p) => (
-          <li key={p} className="border-l-2 border-signal pl-3 text-[0.95rem] leading-relaxed">
+          <li
+            key={p}
+            className="border-l-2 border-signal pl-3 text-[0.95rem] leading-relaxed"
+          >
             {p}
           </li>
         ))}
@@ -232,14 +350,32 @@ function Dial({ value, verdict }: { value: number; verdict: Verdict }) {
 
   useEffect(() => {
     if (reduce) return;
-    const controls = animate(0, value, { duration: 0.9, ease: [0.2, 0.7, 0.1, 1], onUpdate: (v) => setAnimated(Math.round(v)) });
+    const controls = animate(0, value, {
+      duration: 0.9,
+      ease: [0.2, 0.7, 0.1, 1],
+      onUpdate: (v) => setAnimated(Math.round(v)),
+    });
     return () => controls.stop();
   }, [value, reduce]);
 
   return (
-    <div className="relative size-28 shrink-0" role="img" aria-label={`Opportunity score ${value} out of 100`}>
+    <div
+      className="relative size-28 shrink-0"
+      role="img"
+      aria-label={`Opportunity score ${value} out of 100`}
+    >
       <svg viewBox="0 0 100 100" className="size-full rotate-[135deg]">
-        <circle cx="50" cy="50" r={r} fill="none" stroke="currentColor" className="text-haze/20" strokeWidth="7" strokeDasharray={`${arc} ${circ}`} strokeLinecap="round" />
+        <circle
+          cx="50"
+          cy="50"
+          r={r}
+          fill="none"
+          stroke="currentColor"
+          className="text-haze/20"
+          strokeWidth="7"
+          strokeDasharray={`${arc} ${circ}`}
+          strokeLinecap="round"
+        />
         <motion.circle
           cx="50"
           cy="50"
@@ -247,7 +383,13 @@ function Dial({ value, verdict }: { value: number; verdict: Verdict }) {
           fill="none"
           strokeWidth="7"
           strokeLinecap="round"
-          className={verdict === "prime" ? "stroke-signal" : verdict === "warm" ? "stroke-haze" : "stroke-cyanotype"}
+          className={
+            verdict === "prime"
+              ? "stroke-signal"
+              : verdict === "warm"
+                ? "stroke-haze"
+                : "stroke-cyanotype"
+          }
           strokeDasharray={`${arc} ${circ}`}
           initial={{ strokeDashoffset: reduce ? arc * (1 - value / 100) : arc }}
           animate={{ strokeDashoffset: arc * (1 - value / 100) }}
@@ -255,9 +397,125 @@ function Dial({ value, verdict }: { value: number; verdict: Verdict }) {
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="font-display text-3xl font-bold leading-none">{shown}</span>
+        <span className="font-display text-3xl font-bold leading-none">
+          {shown}
+        </span>
         <span className="mt-1 text-[11px] text-haze">opportunity</span>
       </div>
     </div>
+  );
+}
+
+function PipelineControls({
+  business,
+  report,
+  saved,
+  onSave,
+  onUpdate,
+  onRemove,
+}: {
+  business: Business;
+  report: AnalysisReport | null;
+  saved?: SavedLead;
+  onSave: Props["onSave"];
+  onUpdate: Props["onUpdate"];
+  onRemove: Props["onRemove"];
+}) {
+  // Keep the saved snapshot's score current once an audit finishes.
+  useEffect(() => {
+    if (saved && report && saved.opportunity !== report.opportunity)
+      onSave(business, report);
+  }, [saved, report, business, onSave]);
+
+  if (!saved) {
+    return (
+      <button
+        type="button"
+        onClick={() => onSave(business, report)}
+        className="inline-flex w-fit items-center gap-2 rounded-lg border border-haze/30 px-3.5 py-2 text-sm font-bold transition-colors hover:border-signal hover:text-signal"
+      >
+        <Bookmark size={16} aria-hidden /> Save to my leads
+      </button>
+    );
+  }
+
+  return (
+    <section
+      aria-label="Your notes on this lead"
+      className="rounded-2xl border border-haze/20 p-4"
+    >
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="inline-flex items-center gap-1.5 text-sm font-bold text-signal">
+          <BookmarkCheck size={16} aria-hidden /> Saved
+        </span>
+        <label className="ml-auto flex items-center gap-2 text-sm text-haze">
+          Status
+          <select
+            value={saved.status}
+            onChange={(e) =>
+              onUpdate(saved.id, { status: e.target.value as LeadStatus })
+            }
+            className="rounded-md border border-haze/25 bg-prussian-deep px-2 py-1.5 text-chalk"
+          >
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABEL[s]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() => onRemove(saved.id)}
+          className="rounded-md px-2 py-1.5 text-sm text-haze hover:bg-cyanotype-soft hover:text-chalk"
+        >
+          Remove
+        </button>
+      </div>
+      <label className="mt-3 block text-sm text-haze">
+        Notes
+        <NotesField id={saved.id} initial={saved.notes} onUpdate={onUpdate} />
+      </label>
+    </section>
+  );
+}
+
+/** Saves as you type (debounced) and flushes on blur or unmount, so closing the sheet never loses notes. */
+function NotesField({
+  id,
+  initial,
+  onUpdate,
+}: {
+  id: string;
+  initial: string;
+  onUpdate: Props["onUpdate"];
+}) {
+  const pending = useRef<{
+    timer: ReturnType<typeof setTimeout>;
+    value: string;
+  } | null>(null);
+  const flush = useCallback(() => {
+    if (!pending.current) return;
+    clearTimeout(pending.current.timer);
+    onUpdate(id, { notes: pending.current.value });
+    pending.current = null;
+  }, [id, onUpdate]);
+
+  useEffect(() => flush, [flush]);
+
+  return (
+    <textarea
+      defaultValue={initial}
+      maxLength={2000}
+      rows={3}
+      onChange={(e) => {
+        const value = e.target.value;
+        if (pending.current) clearTimeout(pending.current.timer);
+        pending.current = { value, timer: setTimeout(flush, 500) };
+      }}
+      onBlur={flush}
+      placeholder="Who you spoke to, what they need, when to follow up…"
+      className="mt-1 block w-full resize-y rounded-lg border border-haze/25 bg-prussian-deep/70 px-3 py-2 text-chalk placeholder:text-haze/70 focus:border-signal focus:outline-none"
+    />
   );
 }
