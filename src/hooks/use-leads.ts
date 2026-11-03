@@ -7,7 +7,16 @@ export type SearchState =
   | { status: "idle" }
   | { status: "loading"; city: string; niche: string; radiusM: number }
   | { status: "ready"; city: string; niche: string; radiusM: number; center: GeoPoint; businesses: Business[] }
-  | { status: "error"; city: string; niche: string; radiusM: number; message: string; retryable: boolean };
+  | {
+      status: "error";
+      city: string;
+      niche: string;
+      radiusM: number;
+      message: string;
+      retryable: boolean;
+      /** The session ended (401): the fix is signing in again, not retrying. */
+      signInRequired?: boolean;
+    };
 
 export type LeadAnalysis =
   | { status: "analyzing" }
@@ -51,6 +60,12 @@ export function useLeads() {
         if (controller.signal.aborted || gen !== generation.current) return;
         res = await fetch(`/api/places?${qs}`, { signal: controller.signal });
       }
+      if (res.status === 401) {
+        if (gen !== generation.current) return;
+        const message = "You've been signed out. Sign in again to run this survey.";
+        setSearch({ status: "error", city, niche, radiusM, message, retryable: false, signInRequired: true });
+        return;
+      }
       if (!res.ok) {
         const message = await readError(res, "Search failed. Try again.");
         if (gen !== generation.current) return;
@@ -91,7 +106,9 @@ export function useLeads() {
         if (gen !== generation.current) return;
         res = await send();
       }
-      if (!res.ok) {
+      if (res.status === 401) {
+        next = { status: "error", message: "You've been signed out. Sign in again to audit this site." };
+      } else if (!res.ok) {
         next = { status: "error", message: await readError(res, "The audit failed. Try again.") };
       } else {
         next = { status: "done", report: (await res.json()) as AnalysisReport };

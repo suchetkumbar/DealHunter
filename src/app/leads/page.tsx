@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { AccountMenu } from "@/components/account-menu";
 import { ClearHistoryButton } from "@/components/clear-history-button";
 import { LeadsBoard } from "@/components/leads-board";
+import { BrandMark } from "@/components/site-chrome";
 import { listAudits, listSearches } from "@/lib/history";
 import { getUser } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -44,9 +45,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col px-5 sm:px-8">
       <header className="flex items-center justify-between py-5">
-        <Link href="/" className="font-display text-lg font-bold tracking-tight">
-          SaleCrawler
-        </Link>
+        <BrandMark />
         <nav className="flex items-center gap-2" aria-label="Account">
           <Link href="/" className="rounded-lg px-3 py-2 text-sm text-haze hover:bg-cyanotype-soft hover:text-chalk">
             New survey

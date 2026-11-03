@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { errorJson, guardRequest } from "@/lib/guard";
 import { CityNotFoundError, DEFAULT_RADIUS_M, RADII_M, UpstreamError, findBusinesses, geocode } from "@/lib/osm";
+import { getUser } from "@/lib/session";
 import type { PlacesResponse } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -19,6 +20,8 @@ const Query = z.object({
 export async function GET(request: Request) {
   const blocked = await guardRequest(request, { name: "places", limit: 15 });
   if (blocked) return blocked;
+  // Surveys are for signed-in users only. The page hides the tool too, but this is the real gate.
+  if (!(await getUser())) return errorJson("Sign in to run a survey.", 401);
 
   const params = Object.fromEntries(new URL(request.url).searchParams);
   const parsed = Query.safeParse(params);
@@ -30,9 +33,10 @@ export async function GET(request: Request) {
     const center = await geocode(parsed.data.city);
     const businesses = await findBusinesses(center, parsed.data.niche, parsed.data.r);
     const body: PlacesResponse = { center, radiusM: parsed.data.r, businesses };
-    // Let the Vercel CDN share results across instances and keep serving them if OSM is down.
+    // Browser-only caching: a shared CDN copy would be served to signed-out visitors without
+    // reaching the auth check above. Repeat lookups are still absorbed by the cache in lib/osm.
     return NextResponse.json(body, {
-      headers: { "cache-control": "public, s-maxage=600, stale-while-revalidate=86400" },
+      headers: { "cache-control": "private, max-age=600", vary: "cookie" },
     });
   } catch (err) {
     if (err instanceof CityNotFoundError) return errorJson(err.message, 404);

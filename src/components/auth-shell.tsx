@@ -1,13 +1,11 @@
-import Link from "next/link";
+import { BrandMark } from "@/components/site-chrome";
 
 /** Shared frame for the sign-in and sign-up pages. */
 export function AuthShell({ title, lede, children }: { title: string; lede: string; children: React.ReactNode }) {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col px-5 sm:px-8">
       <header className="py-5">
-        <Link href="/" className="font-display text-lg font-bold tracking-tight">
-          SaleCrawler
-        </Link>
+        <BrandMark />
       </header>
       <main className="grid flex-1 items-center gap-10 pb-16 md:grid-cols-[1fr_minmax(0,420px)] md:gap-16">
         <div>

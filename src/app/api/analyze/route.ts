@@ -11,7 +11,7 @@ export const maxDuration = 25;
 
 const Body = z.object({
   url: z.string().trim().max(2048).nullable(),
-  // Optional context so signed-in users get the audit in their history.
+  // Optional context so the audit lands in the user's history.
   leadId: z.string().min(1).max(64).optional(),
   name: z.string().trim().min(1).max(200).optional(),
 });
@@ -19,6 +19,9 @@ const Body = z.object({
 export async function POST(req: Request) {
   const blocked = await guardRequest(req, { name: "analyze", limit: 60, maxBodyBytes: 4096 });
   if (blocked) return blocked;
+  // Audits are for signed-in users only. The page hides the tool too, but this is the real gate.
+  const user = await getUser();
+  if (!user) return errorJson("Sign in to audit websites.", 401);
 
   let parsed;
   try {
@@ -36,17 +39,14 @@ export async function POST(req: Request) {
     if (leadId && name) {
       // Best effort: history must never break the audit itself.
       try {
-        const user = await getUser();
-        if (user) {
-          await recordAudit(user.id, {
-            leadId,
-            businessName: name,
-            url: report.url,
-            opportunity: report.opportunity,
-            verdict: report.verdict,
-            missing: report.signals.filter((s) => !s.passed).map((s) => s.label),
-          });
-        }
+        await recordAudit(user.id, {
+          leadId,
+          businessName: name,
+          url: report.url,
+          opportunity: report.opportunity,
+          verdict: report.verdict,
+          missing: report.signals.filter((s) => !s.passed).map((s) => s.label),
+        });
       } catch (err) {
         console.error("[analyze] could not record audit history", err);
       }

@@ -17,7 +17,7 @@ export default async function SignUpPage({ searchParams }: { searchParams: Promi
   return (
     <AuthShell
       title="Keep every lead you find."
-      lede="A free account saves your leads, notes, surveys and audits, so your pipeline follows you from laptop to phone."
+      lede="A free account lets you survey any city and audit every website. Your leads, notes and history follow you from laptop to phone."
     >
       <AuthForm mode="sign-up" action={signUpAction} redirectTo={redirectTo === "/" ? "/leads?welcome=1" : redirectTo} />
     </AuthShell>

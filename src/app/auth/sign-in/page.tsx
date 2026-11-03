@@ -15,7 +15,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   const redirectTo = safeRedirect((await searchParams).redirectTo);
   if (await getUser()) redirect(redirectTo);
   return (
-    <AuthShell title="Welcome back." lede="Sign in to pick up your saved leads, past surveys and audits on any device.">
+    <AuthShell title="Welcome back." lede="Sign in to survey a city, audit websites and pick up your saved leads on any device.">
       <AuthForm mode="sign-in" action={signInAction} redirectTo={redirectTo} />
     </AuthShell>
   );

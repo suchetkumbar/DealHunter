@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
+import { BrandMark } from "@/components/site-chrome";
 
 export const metadata: Metadata = {
   title: "Off the map — SaleCrawler",
@@ -19,9 +20,7 @@ export default async function NotFound() {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col px-5 sm:px-8">
       <header className="py-5">
-        <Link href="/" className="font-display text-lg font-bold tracking-tight">
-          SaleCrawler
-        </Link>
+        <BrandMark />
       </header>
 
       <main className="grid flex-1 items-center gap-12 pb-16 md:grid-cols-[1fr_auto]">
