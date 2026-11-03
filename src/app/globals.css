@@ -1,38 +1,121 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  
-  --color-background: #0a0a0f;
-  --color-foreground: #ededed;
-  
-  --color-primary-500: #6366f1;
-  --color-primary-600: #4f46e5;
-  --color-secondary-500: #ec4899;
-  
-  /* Glassmorphism utility colors */
-  --color-card-bg: rgba(255, 255, 255, 0.05);
-  --color-card-border: rgba(255, 255, 255, 0.1);
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-atkinson), ui-sans-serif, system-ui, sans-serif;
+
+  /* Cyanotype survey palette */
+  --color-prussian: #0f2a44;
+  --color-prussian-deep: #0a1f33;
+  --color-cyanotype: #1d4f7a;
+  --color-cyanotype-soft: #163d5f;
+  --color-chalk: #e6edf2;
+  --color-haze: #8fa9bf;
+  --color-signal: #f4c542;
+  --color-flare: #f08a68;
 }
 
 @layer base {
+  html {
+    color-scheme: dark;
+  }
+
   body {
-    background-color: var(--color-background);
-    color: var(--color-foreground);
-    background-image: 
-      radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.15) 0px, transparent 50%),
-      radial-gradient(at 100% 100%, rgba(236, 72, 153, 0.15) 0px, transparent 50%);
-    background-attachment: fixed;
-    min-height: 100vh;
+    background-color: var(--color-prussian);
+    color: var(--color-chalk);
+    font-family: var(--font-sans);
+    /* Faint survey grid, like the blue field of a cyanotype print. */
+    background-image:
+      linear-gradient(to right, rgb(143 169 191 / 0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(143 169 191 / 0.06) 1px, transparent 1px);
+    background-size: 48px 48px;
+    min-height: 100dvh;
+  }
+
+  ::selection {
+    background: var(--color-signal);
+    color: var(--color-prussian-deep);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
   }
 }
 
-@layer utilities {
-  .glass {
-    background: var(--color-card-bg);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid var(--color-card-border);
+@layer components {
+  .headline {
+    font-family: var(--font-display);
+    font-variation-settings: "opsz" 96;
+    font-stretch: 100%;
+    transition: font-stretch 700ms cubic-bezier(0.2, 0.7, 0.1, 1), font-size 700ms cubic-bezier(0.2, 0.7, 0.1, 1);
+  }
+
+  .headline[data-condensed="true"] {
+    font-stretch: 88%;
+  }
+
+  /* Spotlight border that follows the pointer across the search panel. */
+  .spotlight {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .spotlight::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: radial-gradient(
+      220px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+      rgb(244 197 66 / 0.55),
+      rgb(143 169 191 / 0.18) 45%,
+      rgb(143 169 191 / 0.18)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .field {
+    width: 100%;
+    height: 3.25rem;
+    border-radius: 0.75rem;
+    background: rgb(10 31 51 / 0.7);
+    border: 1px solid rgb(143 169 191 / 0.22);
+    padding-inline: 2.75rem 1rem;
+    color: var(--color-chalk);
+    font-size: 1rem;
+    transition: border-color 150ms;
+  }
+
+  .field::placeholder {
+    color: rgb(143 169 191 / 0.75);
+  }
+
+  .field:focus {
+    outline: none;
+    border-color: var(--color-signal);
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(143 169 191 / 0.3) transparent;
   }
 }

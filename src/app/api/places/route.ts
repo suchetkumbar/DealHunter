@@ -1,40 +1,31 @@
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { CityNotFoundError, UpstreamError, findBusinesses, geocode } from "@/lib/osm";
+import type { PlacesResponse } from "@/lib/types";
+
+export const runtime = "nodejs";
+
+const Query = z.object({
+  city: z.string().trim().min(2, "Enter a city to search.").max(120),
+  niche: z.string().trim().min(2, "Choose or type a niche.").max(60),
+});
 
 export async function GET(request: Request) {
-    const { searchParams } = new URL(request.url);
-    const location = searchParams.get('location') || 'Unknown Location';
-    const niche = searchParams.get('niche') || 'Business';
+  const params = Object.fromEntries(new URL(request.url).searchParams);
+  const parsed = Query.safeParse(params);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Check the search fields." }, { status: 400 });
+  }
 
-    // Mocking Google Places API response because no API key is provided
-    const mockBusinesses = [
-        {
-            id: '1',
-            name: `Premium ${niche} of ${location}`,
-            rating: 4.8,
-            website: 'https://intercom.com', // Tech-heavy site for testing
-            phone: '(555) 123-4567',
-            address: `123 Main St, ${location}`,
-        },
-        {
-            id: '2',
-            name: `Legacy ${niche} Services`,
-            rating: 4.2,
-            website: 'http://info.cern.ch/', // First website ever (very legacy)
-            phone: '(555) 987-6543',
-            address: `456 Oak St, ${location}`,
-        },
-        {
-            id: '3',
-            name: `Downtown ${niche} Clinic`,
-            rating: 3.5,
-            website: null, // No website - perfect lead
-            phone: '(555) 555-5555',
-            address: `789 Pine St, ${location}`,
-        }
-    ];
-
-    // Simulating network delay to show off UI loading states
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    return NextResponse.json({ results: mockBusinesses });
+  try {
+    const center = await geocode(parsed.data.city);
+    const businesses = await findBusinesses(center, parsed.data.niche);
+    const body: PlacesResponse = { center, businesses };
+    return NextResponse.json(body);
+  } catch (err) {
+    if (err instanceof CityNotFoundError) return NextResponse.json({ error: err.message }, { status: 404 });
+    if (err instanceof UpstreamError) return NextResponse.json({ error: err.message }, { status: 502 });
+    console.error("[places] unexpected failure", err);
+    return NextResponse.json({ error: "Search failed unexpectedly. Try again." }, { status: 500 });
+  }
 }

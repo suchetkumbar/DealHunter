@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SaleCrawler
 
-## Getting Started
+Find local businesses that still run on paper. Pick a city and a niche and SaleCrawler maps every matching business near the city centre. It then audits each website for the things an AI or automation agency could sell them: online booking, chat or an AI assistant, a mobile-ready site, HTTPS, speed, analytics, a modern platform and recent updates.
 
-First, run the development server:
+Everything is free. There are no API keys and no paid services.
+
+## Run it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev        # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Development server |
+| `npm run build && npm start` | Production build |
+| `npm run lint` | ESLint |
+| `npm test` | Unit tests (Vitest) |
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Requires Node.js 20.9 or newer.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## How it works
 
-## Learn More
+- **Business data:** [OpenStreetMap](https://www.openstreetmap.org/copyright).
+  - Nominatim finds the city, then searches inside a ~6 km box around it, usually in 1–3 seconds.
+  - If Nominatim finds nothing, a slower Overpass query (capped at 15 s) runs against several public mirrors in parallel.
+  - Results are cached in memory for 10 minutes, and Nominatim calls are throttled to 1 per second, per their usage policy.
+  - Resilience: transient Nominatim failures (network errors, 429, 5xx) are retried once.
+  - If a refresh fails, cached answers up to 6 hours old are served instead.
+  - The browser retries a failed search once before showing an error.
+- **Website audit:** `src/lib/analyze.ts`.
+  - The homepage is fetched server-side and parsed with cheerio.
+  - Tools are detected from script, iframe and link targets rather than page text, which avoids false positives.
+  - The scoring weights in `src/lib/scoring.ts` sum to 100. Opportunity = 100 − maturity.
+  - Widgets that are injected only by JavaScript at runtime can be missed. The report says so.
+- **Safety:** `src/lib/safe-fetch.ts`.
+  - Only http(s) URLs are allowed.
+  - Every DNS answer and every redirect hop is checked against private, loopback, link-local and metadata ranges.
+  - 8 s timeout and 1.5 MB body cap.
 
-To learn more about Next.js, take a look at the following resources:
+## Project layout
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+src/app/page.tsx              UI shell: hero, survey scope, lead list, report
+src/app/api/places/route.ts   GET  ?city=&niche=  → { center, businesses }
+src/app/api/analyze/route.ts  POST { url|null }   → AnalysisReport
+src/components/               SearchPanel, SurveyScope, LeadList, LeadReport
+src/hooks/use-leads.ts        Search + audit state (keyed by id, abortable, 3 audits at a time)
+src/lib/                      osm, analyze, scoring, safe-fetch, csv, types
+src/lib/__tests__/            Vitest unit tests
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Deploying
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The API routes use the Node.js runtime and have no native dependencies, so it deploys to Vercel or any Node host as is. For heavy use, run your own Nominatim/Overpass instance or a paid OSM provider, because the public endpoints are shared community resources.
